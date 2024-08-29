@@ -1,5 +1,5 @@
-# This file is part of multiview: Methods for High-Dimensional Multi-View Learning
-# Copyright (C) 2018-2022  Wouter van Loon
+# This file is part of mvs: Methods for High-Dimensional Multi-View Learning
+# Copyright (C) 2018-2024  Wouter van Loon
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,6 +16,8 @@
 utils::globalVariables(c("k", "v"))
 
 #' Stacked Penalized Logistic Regression
+#' 
+#
 #'
 #' Fit a two-level stacked penalized (logistic) regression model with a single base-learner and a single meta-learner. Stacked penalized regression models with a Gaussian or Poisson outcome can be fitted using the family argument. 
 #' @param x input matrix of dimension nobs x nvars
@@ -25,10 +27,15 @@ utils::globalVariables(c("k", "v"))
 #' @param family Either a character string representing one of the built-in families, or else a \code{glm()} family object. 
 #'                 For more information, see \code{family} argument's documentation in \code{\link[glmnet]{glmnet}}. Note
 #'                 that "multinomial", "mgaussian", "cox", or 2-column responses with "binomial" family are not yet supported. 
-#' @param correct.for (optional) a matrix with nrow = nobs, where each column is a feature which should be included directly into the meta.learner. By default these features are not penalized (see penalty.weights) and appear at the top of the coefficient list.
+#' @param correct.for (optional) a matrix with nrow = nobs, where each column is a feature which should be included directly into the meta.learner. By default these features are not penalized (see penalty.weights.meta) and appear at the top of the coefficient list.
 #' @param alpha1 (base) alpha parameter for glmnet: lasso(1) / ridge(0)
 #' @param alpha2 (meta) alpha parameter for glmnet: lasso(1) / ridge(0)
+#' @param relax.base logical indicating whether relaxed lasso should be employed for fitting the base learners. If \code{TRUE}, then CV is done with respect to the mixing parameter gamma as well as lambda.
+#' @param relax.meta logical indicating whether relaxed lasso should be employed for fitting the meta learner. If \code{TRUE}, then CV is done with respect to the mixing parameter gamma as well as lambda.
+#' @param relax logical, whether relaxed lasso should be used at base and meta level.
 #' @param nfolds number of folds to use for all cross-validation.
+#' @param na.action character specifying what to do with missing values (NA). Options are "pass", "fail", "mean", "mice", and "missForest". Options "mice" and "missForest" requires the respective R package to be installed. Defaults to "pass".
+#' @param na.arguments (optional) a named list of arguments to pass to the imputation function (e.g. to \code{mice} or \code{missForest}).
 #' @param seed (optional) numeric value specifying the seed. Setting the seed this way ensures the results are reproducible even when the computations are performed in parallel.
 #' @param std.base should features be standardized at the base level?
 #' @param std.meta should cross-validated predictions be standardized at the meta level?
@@ -42,7 +49,9 @@ utils::globalVariables(c("k", "v"))
 #' @param cvparallel whether to use 'foreach' to fit each CV fold (DO NOT USE, USE OPTION parallel INSTEAD).
 #' @param lambda.ratio the ratio between the largest and smallest lambda value.
 #' @param fdev sets the minimum fractional change in deviance for stopping the path to the specified value, ignoring the value of fdev set through glmnet.control. Setting fdev=NULL will use the value set through glmnet.control instead. It is strongly recommended to use the default value of zero. 
-#' @param penalty.weights (optional) a vector of length nviews, containing different penalty factors for the meta-learner. Defaults to rep(1,nviews). The penalty factor is set to 0 for correct.for features.
+#' @param penalty.weights.meta (optional) either a vector of length nviews containing different penalty factors for the meta-learner, or "adaptive" to calculate the weights from the data. The default value NULL implies an equal penalty for each view. The penalty factor is set to 0 for \code{correct.for} features.
+#' @param penalty.weights.base (optional) either a list of length nviews, where each entry is a vector containing different penalty factors for each feature in that view, or "adaptive" to calculate the weights from the data. The default value NULL implies an equal penalty for each view. Note that using adaptive weights at the base level is generally only sensible if \code{alpha1} > 0.
+#' @param gamma.seq a sequence of gamma values over which to optimize the adaptive weights. Only used when \code{penalty.weights.meta="adaptive"} or \code{penalty.weights.base="adaptive"}.
 #' @param parallel whether to use foreach to fit the base-learners and obtain the cross-validated predictions in parallel. Executes sequentially unless a parallel backend is registered beforehand.
 #' @param skip.version whether to skip checking the version of the glmnet package.
 #' @param skip.meta whether to skip training the metalearner.
@@ -53,6 +62,7 @@ utils::globalVariables(c("k", "v"))
 #' @import foreach
 #' @import glmnet 
 #' @importFrom utils getTxtProgressBar setTxtProgressBar txtProgressBar packageVersion
+#' @importFrom stats na.omit
 #' @export
 #' @author Wouter van Loon <w.s.van.loon@fsw.leidenuniv.nl>
 #' @examples \donttest{
@@ -95,11 +105,38 @@ utils::globalVariables(c("k", "v"))
 #' new_X <- matrix(rnorm(16), nrow=2)
 #' predict(fit, new_X)
 #' }
-StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.for = NULL, alpha1 = 0, alpha2 = 1, nfolds = 10, seed = NULL,
-                      std.base = FALSE, std.meta = FALSE, ll1 = -Inf, ul1 = Inf,
-                      ll2 = 0, ul2 = Inf, cvloss = "deviance", metadat = "response", cvlambda = "lambda.min",
-                      cvparallel = FALSE, lambda.ratio = 1e-4, fdev=0, penalty.weights = NULL, parallel = FALSE, 
-                      skip.version = TRUE, skip.meta = FALSE, skip.cv = FALSE, progress = TRUE){
+StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.for = NULL, alpha1 = 0, alpha2 = 1, 
+                   relax = FALSE, nfolds = 10, na.action = "fail", na.arguments = NULL, seed = NULL,
+                   std.base = FALSE, std.meta = FALSE, ll1 = -Inf, ul1 = Inf,
+                   ll2 = 0, ul2 = Inf, cvloss = "deviance", metadat = "response", cvlambda = "lambda.min",
+                   cvparallel = FALSE, lambda.ratio = 1e-4, fdev=0, penalty.weights.meta = NULL, penalty.weights.base = NULL, gamma.seq=c(0.5, 1, 2), parallel = FALSE, 
+                   skip.version = TRUE, skip.meta = FALSE, skip.cv = FALSE, progress = TRUE,
+                   relax.base = FALSE, relax.meta = FALSE){
+  
+  # Check na.action argument
+  na.action <- match.arg(na.action, c("pass", "fail", "mean", "mice", "missForest", "remove"))
+  if(na.action == "fail" && anyNA(x)){
+    stop("Missing values detected in x. Either remove or impute missing values, or choose a different na.action")
+  }else if(na.action == "mean" && anyNA(x)){
+    pass <- FALSE
+  }else if(na.action == "mice" && anyNA(x)){
+    if(!requireNamespace("mice")){
+      stop("Package `mice` is required, but not installed.")
+    }
+    pass <- FALSE
+  }else if(na.action == "missForest" && anyNA(x)){
+    if(!requireNamespace("missForest")){
+      stop("Package `missForest` is required, but not installed.")
+    }
+    pass <- FALSE
+  }else if(na.action == "remove" && anyNA(x)){
+    x <- na.omit(x)
+    y <- y[-attr(x, "na.action")]
+  }else if(na.action == "pass" && anyNA(x)){
+    pass <- TRUE
+  }else{
+    pass <- FALSE
+  }
 
   # Set the glmnet.control parameter fdev.
   if(!is.null(fdev)){
@@ -120,7 +157,7 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
   if (is.matrix(y) && ncol(y) > 1L)
     stop("StaPLR does not yet support response variables comprising multiple columns.")
 
-  # object initialization
+  #object initialization
   V <- length(unique(view))
   n <- if (is.matrix(y)) nrow(y) else length(y)
     
@@ -144,6 +181,7 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
       message("Training learner on each view...")
       pb <- txtProgressBar(min=0, max=V, style=3)
     }
+    
     cv.base <- foreach(v=(1:V)) %do% {
       if(progress){
         setTxtProgressBar(pb, v)
@@ -151,12 +189,48 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
       if(!is.null(seed)){
         set.seed(base.seeds[v])
       }
-      glmnet::cv.glmnet(x[, view == v], y, nfolds = nfolds, family = family,
-                        type.measure = cvloss, alpha = alpha1,
-                        standardize = std.base, lower.limits = ll1,
-                        upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio)
+      if(anyNA(x[, view == v])){
+        if(any(check_partial_missings(x[, view == v]))){
+          warning("Partially missing observations found in view ", v,
+                  ". These observations will be treated as if all their values for view ", v,
+                  " are missing. It may be more efficient to perform feature-level imputation. The partially missing observations are: ",
+                  paste(which(check_partial_missings(x[, view == v])), collapse = ", "))
+        }
+        x_train <- na.omit(x[, view == v])
+        y_train <-  y[-attr(x_train, "na.action")]
+      }else{
+        x_train <- x[, view == v]
+        y_train <- y
+      }
+      if(is.null(penalty.weights.base)){
+        glmnet::cv.glmnet(x_train, y_train, nfolds = nfolds, family = family,
+                          type.measure = cvloss, alpha = alpha1,
+                          standardize = std.base, lower.limits = ll1,
+                          upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                          relax = relax.base)
+      }else if(inherits(penalty.weights.base, "list") && length(penalty.weights.base) == V){
+        if(ncol(x_train) != length(penalty.weights.base[[v]])){
+          stop("The length of each penalty weight vector should be equal to the number of features in that view.")
+        }
+        glmnet::cv.glmnet(x_train, y_train, nfolds = nfolds, family = family,
+                          type.measure = cvloss, alpha = alpha1,
+                          standardize = std.base, lower.limits = ll1,
+                          upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                          relax = relax.base, penalty.factor = penalty.weights.base[[v]])
+      }else if(identical(penalty.weights.base, "adaptive")){
+        weights <- adaptive_weights(x_train, y_train, nfolds = nfolds, type.measure = cvloss, 
+                                    family = family, standardize = std.base, lower.limits = ll1,
+                                    upper.limits = ul1, parallel = cvparallel, lambda.min.ratio=lambda.ratio)
+        
+        optimize_over_gamma(x_train, y_train, weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha1,
+                            family = family, standardize = std.base, lower.limits = ll1, upper.limits = ul1, parallel = cvparallel,
+                            lambda.min.ratio=lambda.ratio, relax = relax.base)
+      }else{
+        stop("penalty.weights.base must be either NULL, adaptive, or a list of length nviews, with each entry a numeric vector containing penalty weights for each feature within that view.")
+      }
     }
-
+    
+    
     if(!skip.cv){
       if(progress){
         message("\n Calculating cross-validated predictions...")
@@ -164,22 +238,80 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
       }
 
       Z <- foreach(v=(1:V), .combine=cbind) %:%
-        foreach(k=(1:nfolds), .combine="+") %do% {
+        foreach(k=(1:nfolds), .combine="%+%") %do% {
           if(progress){
             setTxtProgressBar(pb, getTxtProgressBar(pb)+1)
           }
           if(!is.null(seed)){
             set.seed(z.seeds[k, v])
           }
-          cvf <- glmnet::cv.glmnet(x[folds != k, view == v], y = y[folds != k], 
-                                   nfolds = nfolds, family = family,
-                                   type.measure = cvloss, alpha = alpha1,
-                                   standardize = std.base, lower.limits = ll1,
-                                   upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio)
-          newy <- rep(0, length(y)) 
-          newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
-          return(newy)
+          if(anyNA(x[, view == v])){
+            x_train <- na.omit(x[, view == v])
+            y_train <-  y[-attr(x_train, "na.action")]
+            cvfolds <- folds[-attr(x_train, "na.action")]
+          }else{
+            x_train <- x[, view == v]
+            y_train <- y
+            cvfolds <- folds
+          }
+          if(is.null(penalty.weights.base)){
+            cvf <- glmnet::cv.glmnet(x_train[cvfolds != k, ], y = y_train[cvfolds != k], 
+                                     nfolds = nfolds, family = family,
+                                     type.measure = cvloss, alpha = alpha1,
+                                     standardize = std.base, lower.limits = ll1,
+                                     upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                                     relax = relax.base)
+            newy <- rep(NA, length(y)) 
+            newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
+            return(newy)
+          }else if(inherits(penalty.weights.base, "list") && length(penalty.weights.base) == V){
+            if(ncol(x_train) != length(penalty.weights.base[[v]])){
+              stop("The length of each penalty weight vector should be equal to the number of features in that view.")
+            }
+            cvf <- glmnet::cv.glmnet(x_train[cvfolds != k, ], y = y_train[cvfolds != k], 
+                                     nfolds = nfolds, family = family,
+                                     type.measure = cvloss, alpha = alpha1,
+                                     standardize = std.base, lower.limits = ll1,
+                                     upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                                     relax = relax.base, penalty.factor = penalty.weights.base[[v]])
+            newy <- rep(NA, length(y)) 
+            newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
+            return(newy)
+          }else if(identical(penalty.weights.base, "adaptive")){
+            weights <- adaptive_weights(x_train[cvfolds != k, ], y_train[cvfolds != k], nfolds = nfolds, type.measure = cvloss, 
+                                        family = family, standardize = std.base, lower.limits = ll1,
+                                        upper.limits = ul1, parallel = cvparallel, lambda.min.ratio=lambda.ratio)
+            
+            cvf <- optimize_over_gamma(x_train[cvfolds != k, ], y_train[cvfolds != k], weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha1,
+                                       family = family, standardize = std.base, lower.limits = ll1, upper.limits = ul1, parallel = cvparallel,
+                                       lambda.min.ratio=lambda.ratio, relax = relax.base)
+            newy <- rep(NA, length(y)) 
+            newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
+            return(newy)
+          }else{
+            stop("penalty.weights.base must be either NULL, adaptive, or a list of length nviews, with each entry a numeric vector containing penalty weights for each feature within that view.")
+          }
+          
         }
+      
+      if(na.action == "mean" && anyNA(Z)){
+        Z <- impute_mean(Z)
+      }else if(na.action == "mice" && anyNA(Z)){
+        if(!is.null(na.arguments)){
+          na.arguments <- c(list(x=Z, y=y), na.arguments)
+        }else{
+          na.arguments <- list(x=Z, y=y)
+        }
+        Z <- do.call(impute_mice, na.arguments)
+      }else if(na.action == "missForest" && anyNA(Z)){
+        if(!is.null(na.arguments)){
+          na.arguments <- c(list(x=Z, y=y), na.arguments)
+        }else{
+          na.arguments <- list(x=Z, y=y)
+        }
+        Z <- do.call(impute_forest, na.arguments)
+      }
+      
       dimnames(Z) <- NULL
       if(!is.null(view.names)){
         colnames(Z) <- view.names
@@ -189,36 +321,71 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
       skip.meta <- TRUE
     }
 
-    if(progress && !skip.meta){
+    if(progress && !skip.meta && !pass){
       message("\n Training meta learner...")
     }
     if(!is.null(seed)){
       set.seed(meta.seed)
     }
-    if(skip.meta){
+    if(skip.meta || pass){
       cv.meta <- NULL
-    } else if(is.null(correct.for) && is.null(penalty.weights)){
+    } else if(is.null(correct.for) && is.null(penalty.weights.meta)){
       cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2, 
                                    family = family, standardize = std.meta, lower.limits = ll2,
-                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio)
-    } else if(is.null(correct.for) && !is.null(penalty.weights)){
-      cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
-                                   family = family, standardize = std.meta, lower.limits = ll2,
-                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
-                                   penalty.factor=penalty.weights)
-    } else {
-      if(is.null(penalty.weights)){
-        penalty.weights <- c(rep(0, ncol(correct.for)), rep(1, ncol(Z)))
-      } else{
-        penalty.weights <- c(rep(0, ncol(correct.for)), penalty.weights)
+                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio,
+                                   relax = relax.meta)
+    } else if(is.null(correct.for) && !is.null(penalty.weights.meta)){
+      if(identical(penalty.weights.meta,"adaptive")){
+        weights <- adaptive_weights(Z, y, nfolds = nfolds, type.measure = cvloss, 
+                                    family = family, standardize = std.meta, lower.limits = ll2,
+                                    upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio
+                                    )
+        cv.meta <- optimize_over_gamma(Z, y, weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha2, 
+                                       family = family, standardize = std.meta, lower.limits = ll2,
+                                       upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio,
+                                       relax = relax.meta)
+      }else{
+        cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+                                     family = family, standardize = std.meta, lower.limits = ll2,
+                                     upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
+                                     penalty.factor=penalty.weights.meta, relax = relax.meta)
+        }
+      }else{
+      if(is.null(penalty.weights.meta)){
+        penalty.weights.meta <- c(rep(0, ncol(correct.for)), rep(1, ncol(Z)))
+        ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
+        ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
+        Z <- cbind(correct.for, Z)
+        cv.meta <- glmnet::cv.glmnet(Z, y, family = family, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+                                     standardize = std.meta, lower.limits = ll2,
+                                     upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
+                                     penalty.factor=penalty.weights.meta, relax = relax.meta)
+      }else if(identical(penalty.weights.meta,"adaptive")){
+        #stop("Adaptive weights are not currently supported if correct.for is used.")
+        weights <- adaptive_weights(Z, y, nfolds = nfolds, type.measure = cvloss, 
+                                    family = family, standardize = std.meta, lower.limits = ll2,
+                                    upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio
+        )
+        ridge.weights <- c(rep(0, ncol(correct.for)), weights$ridge.weights)
+        inf.weights <- weights$ridge_weights + ncol(correct.for)
+        weights <- list(ridge.weights = ridge.weights, inf.weights = inf.weights)
+        ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
+        ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
+        Z <- cbind(correct.for, Z)
+        cv.meta <- optimize_over_gamma(Z, y, weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha2, 
+                                       family = family, standardize = std.meta, lower.limits = ll2,
+                                       upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio,
+                                       relax = relax.meta)
+      }else{
+        penalty.weights.meta <- c(rep(0, ncol(correct.for)), penalty.weights.meta)
+        ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
+        ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
+        Z <- cbind(correct.for, Z)
+        cv.meta <- glmnet::cv.glmnet(Z, y, family = family, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+                                     standardize = std.meta, lower.limits = ll2,
+                                     upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
+                                     penalty.factor=penalty.weights.meta, relax = relax.meta)
       }
-      ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
-      ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
-      Z <- cbind(correct.for, Z)
-      cv.meta <- glmnet::cv.glmnet(Z, y, family = family, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
-                                   standardize = std.meta, lower.limits = ll2,
-                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
-                                   penalty.factor=penalty.weights)
     }
 
   }
@@ -238,26 +405,119 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
       if(!is.null(seed)){
         set.seed(base.seeds[v])
       }
-      glmnet::cv.glmnet(x[, view == v], y, nfolds = nfolds,
-                        family = family, type.measure = cvloss, alpha = alpha1,
-                        standardize = std.base, lower.limits = ll1,
-                        upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio)
+      if(anyNA(x[, view == v])){
+        if(any(check_partial_missings(x[, view == v]))){
+          warning("Partially missing observations found in view ", v,
+                  ". These observations will be treated as if all their values for view ", v,
+                  " are missing. It may be more efficient to perform feature-level imputation. The partially missing observations are: ",
+                  paste(which(check_partial_missings(x[, view == v])), collapse = ", "))
+        }
+        x_train <- na.omit(x[, view == v])
+        y_train <-  y[-attr(x_train, "na.action")]
+      }else{
+        x_train <- x[, view == v]
+        y_train <- y
+      }
+      if(is.null(penalty.weights.base)){
+        glmnet::cv.glmnet(x_train, y_train, nfolds = nfolds, family = family,
+                          type.measure = cvloss, alpha = alpha1,
+                          standardize = std.base, lower.limits = ll1,
+                          upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                          relax = relax.base)
+      }else if(inherits(penalty.weights.base, "list") && length(penalty.weights.base) == V){
+        if(ncol(x_train) != length(penalty.weights.base[[v]])){
+          stop("The length of each penalty weight vector should be equal to the number of features in that view.")
+        }
+        glmnet::cv.glmnet(x_train, y_train, nfolds = nfolds, family = family,
+                          type.measure = cvloss, alpha = alpha1,
+                          standardize = std.base, lower.limits = ll1,
+                          upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                          relax = relax.base, penalty.factor = penalty.weights.base[[v]])
+      }else if(identical(penalty.weights.base, "adaptive")){
+        weights <- adaptive_weights(x_train, y_train, nfolds = nfolds, type.measure = cvloss, 
+                                    family = family, standardize = std.base, lower.limits = ll1,
+                                    upper.limits = ul1, parallel = cvparallel, lambda.min.ratio=lambda.ratio)
+        
+        optimize_over_gamma(x_train, y_train, weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha1,
+                            family = family, standardize = std.base, lower.limits = ll1, upper.limits = ul1, parallel = cvparallel,
+                            lambda.min.ratio=lambda.ratio, relax = relax.base)
+      }else{
+        stop("penalty.weights.base must be either NULL, adaptive, or a list of length nviews, with each entry a numeric vector containing penalty weights for each feature within that view.")
+      }
     }
 
     if(!skip.cv){
       Z <- foreach(v=(1:V), .combine=cbind) %:%
-        foreach(k=(1:nfolds), .combine="+") %dopar% {
+        foreach(k=(1:nfolds), .combine="%+%") %dopar% {
           if(!is.null(seed)){
             set.seed(z.seeds[k, v])
           }
-          cvf <- glmnet::cv.glmnet(x[folds != k, view == v], y[folds != k], nfolds = nfolds,
-                                   family = family, type.measure = cvloss, alpha = alpha1,
-                                   standardize = std.base, lower.limits = ll1,
-                                   upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio)
-          newy <- rep(0, length(y))
-          newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
-          return(newy)
+          if(anyNA(x[, view == v])){
+            x_train <- na.omit(x[, view == v])
+            y_train <-  y[-attr(x_train, "na.action")]
+            cvfolds <- folds[-attr(x_train, "na.action")]
+          }else{
+            x_train <- x[, view == v]
+            y_train <- y
+            cvfolds <- folds
+          }
+          if(is.null(penalty.weights.base)){
+            cvf <- glmnet::cv.glmnet(x_train[cvfolds != k, ], y = y_train[cvfolds != k], 
+                                     nfolds = nfolds, family = family,
+                                     type.measure = cvloss, alpha = alpha1,
+                                     standardize = std.base, lower.limits = ll1,
+                                     upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                                     relax = relax.base)
+            newy <- rep(NA, length(y)) 
+            newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
+            return(newy)
+          }else if(inherits(penalty.weights.base, "list") == "list" && length(penalty.weights.base) == V){
+            if(ncol(x_train) != length(penalty.weights.base[[v]])){
+              stop("The length of each penalty weight vector should be equal to the number of features in that view.")
+            }
+            cvf <- glmnet::cv.glmnet(x_train[cvfolds != k, ], y = y_train[cvfolds != k], 
+                                     nfolds = nfolds, family = family,
+                                     type.measure = cvloss, alpha = alpha1,
+                                     standardize = std.base, lower.limits = ll1,
+                                     upper.limits = ul1, parallel = cvparallel, lambda.min.ratio = lambda.ratio,
+                                     relax = relax.base, penalty.factor = penalty.weights.base[[v]])
+            newy <- rep(NA, length(y)) 
+            newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
+            return(newy)
+          }else if(identical(penalty.weights.base, "adaptive")){
+            weights <- adaptive_weights(x_train[cvfolds != k, ], y_train[cvfolds != k], nfolds = nfolds, type.measure = cvloss, 
+                                        family = family, standardize = std.base, lower.limits = ll1,
+                                        upper.limits = ul1, parallel = cvparallel, lambda.min.ratio=lambda.ratio)
+            
+            cvf <- optimize_over_gamma(x_train[cvfolds != k, ], y_train[cvfolds != k], weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha1,
+                                       family = family, standardize = std.base, lower.limits = ll1, upper.limits = ul1, parallel = cvparallel,
+                                       lambda.min.ratio=lambda.ratio, relax = relax.base)
+            newy <- rep(NA, length(y)) 
+            newy[folds == k] <- predict(cvf, newx = x[folds == k, view == v], s = cvlambda, type = metadat)
+            return(newy)
+          }else{
+            stop("penalty.weights.base must be either NULL, adaptive, or a list of length nviews, with each entry a numeric vector containing penalty weights for each feature within that view.")
+          }
         }
+      
+      if(na.action == "mean" && anyNA(Z)){
+        Z <- impute_mean(Z)
+      }else if(na.action == "mice" && anyNA(Z)){
+        if(!is.null(na.arguments)){
+          na.arguments <- c(list(x=Z, y=y), na.arguments)
+        }else{
+          na.arguments <- list(x=Z, y=y)
+        }
+        Z <- do.call(impute_mice, na.arguments)
+      }else if(na.action == "missForest" && anyNA(Z)){
+        if(!is.null(na.arguments)){
+          na.arguments <- c(list(x=Z, y=y), na.arguments)
+        }else{
+          na.arguments <- list(x=Z, y=y)
+        }
+        Z <- do.call(impute_forest, na.arguments)
+      }
+      
       dimnames(Z) <- NULL
       if(!is.null(view.names)){
         colnames(Z) <- view.names
@@ -270,30 +530,65 @@ StaPLR <- function(x, y, view, view.names = NULL, family = "binomial", correct.f
     if(!is.null(seed)){
       set.seed(meta.seed)
     }
-    if(skip.meta){
+    if(skip.meta || pass){
       cv.meta <- NULL
-    } else if(is.null(correct.for) && is.null(penalty.weights)){
-      cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+    } else if(is.null(correct.for) && is.null(penalty.weights.meta)){
+      cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2, 
                                    family = family, standardize = std.meta, lower.limits = ll2,
-                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio)
-    } else if(is.null(correct.for) && !is.null(penalty.weights)){
-      cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
-                                   family = family, standardize = std.meta, lower.limits = ll2,
-                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
-                                   penalty.factor=penalty.weights)
-    } else{
-      if(is.null(penalty.weights)){
-        penalty.weights <- c(rep(0, ncol(correct.for)), rep(1, ncol(Z)))
-      } else{
-        penalty.weights <- c(rep(0, ncol(correct.for)), penalty.weights)
+                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio,
+                                   relax = relax.meta)
+    } else if(is.null(correct.for) && !is.null(penalty.weights.meta)){
+      if(identical(penalty.weights.meta,"adaptive")){
+        weights <- adaptive_weights(Z, y, nfolds = nfolds, type.measure = cvloss, 
+                                    family = family, standardize = std.meta, lower.limits = ll2,
+                                    upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio
+        )
+        cv.meta <- optimize_over_gamma(Z, y, weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha2, 
+                                       family = family, standardize = std.meta, lower.limits = ll2,
+                                       upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio,
+                                       relax = relax.meta)
+      }else{
+        cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+                                     family = family, standardize = std.meta, lower.limits = ll2,
+                                     upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
+                                     penalty.factor=penalty.weights.meta, relax = relax.meta)
       }
-      ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
-      ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
-      Z <- cbind(correct.for, Z)
-      cv.meta <- glmnet::cv.glmnet(Z, y, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
-                                   family = family,standardize = std.meta, lower.limits = ll2,
-                                   upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
-                                   penalty.factor=penalty.weights)
+    }else{
+      if(is.null(penalty.weights.meta)){
+        penalty.weights.meta <- c(rep(0, ncol(correct.for)), rep(1, ncol(Z)))
+        ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
+        ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
+        Z <- cbind(correct.for, Z)
+        cv.meta <- glmnet::cv.glmnet(Z, y, family = family, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+                                     standardize = std.meta, lower.limits = ll2,
+                                     upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
+                                     penalty.factor=penalty.weights.meta, relax = relax.meta)
+      }else if(identical(penalty.weights.meta,"adaptive")){
+        #stop("Adaptive weights are not currently supported if correct.for is used.")
+        weights <- adaptive_weights(Z, y, nfolds = nfolds, type.measure = cvloss, 
+                                    family = family, standardize = std.meta, lower.limits = ll2,
+                                    upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio
+        )
+        ridge.weights <- c(rep(0, ncol(correct.for)), weights$ridge.weights)
+        inf.weights <- weights$ridge_weights + ncol(correct.for)
+        weights <- list(ridge.weights = ridge.weights, inf.weights = inf.weights)
+        ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
+        ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
+        Z <- cbind(correct.for, Z)
+        cv.meta <- optimize_over_gamma(Z, y, weights, gamma.seq, nfolds = nfolds, type.measure = cvloss, alpha = alpha2, 
+                                       family = family, standardize = std.meta, lower.limits = ll2,
+                                       upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio,
+                                       relax = relax.meta)
+      }else{
+        penalty.weights.meta <- c(rep(0, ncol(correct.for)), penalty.weights.meta)
+        ll2 <- c(rep(-Inf, ncol(correct.for)), rep(ll2, ncol(Z)))
+        ul2 <- c(rep(Inf, ncol(correct.for)), rep(ul2, ncol(Z)))
+        Z <- cbind(correct.for, Z)
+        cv.meta <- glmnet::cv.glmnet(Z, y, family = family, nfolds = nfolds, type.measure = cvloss, alpha = alpha2,
+                                     standardize = std.meta, lower.limits = ll2,
+                                     upper.limits = ul2, parallel = cvparallel, lambda.min.ratio=lambda.ratio, 
+                                     penalty.factor=penalty.weights.meta, relax = relax.meta)
+      }
     }
   }
 

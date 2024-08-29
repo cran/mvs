@@ -11,5 +11,8 @@ test_that("MVS",{
   y <- rbinom(n, 1, p)
   
   MVS_fit <- MVS(x=X, y=y, views=views, type="StaPLR", levels=3, alphas=c(0,1,1), nnc=c(0,1,1))
-  expect_equal(coef(MVS_fit)$`Level 3`[[1]][1:4], c(-1.996115,  3.917804,  0.000000,  0.000000), tolerance = 1e-03)
+  MVS_fit_adaptive <- MVS(x=X, y=y, views=views, type="StaPLR", levels=3, alphas=c(0,1,1), nnc=c(0,1,1), adaptive=c(F,F,T))
+  expect_equal(coef(MVS_fit)$`Level 3`[[1]][1:4], c(-1.996115,  3.917804,  0,  0), tolerance = 1e-03)
+  expect_equal(mrm(MVS_fit, mean(y)), c(0.5257742, 0.6750250, 0.6129507, 0, 0, 0, 0, 0, 0), tolerance = 1e-03)
+  expect_equal(coef(MVS_fit_adaptive)$`Level 3`[[1]][1:4], c(-1.904398,  3.739364, 0, 0), tolerance = 1e-03)
 })

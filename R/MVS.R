@@ -1,5 +1,5 @@
-# This file is part of multiview: Methods for High-Dimensional Multi-View Learning
-# Copyright (C) 2018-2021  Wouter van Loon
+# This file is part of mvs: Methods for High-Dimensional Multi-View Learning
+# Copyright (C) 2018-2024  Wouter van Loon
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,8 +21,12 @@
 #' @param views a matrix of dimension nvars x (levels - 1), where each entry is an integer describing to which view each feature corresponds.
 #' @param type the type of MVS model to be fitted. Currently only type "StaPLR" is supported.
 #' @param levels an integer >= 2, specifying the number of levels in the MVS procedure.
-#' @param alphas a vector specifying the value of the alpha parameter to use at each level.
+#' @param alphas a numeric vector of length \code{levels} specifying the value of the alpha parameter to use at each level.
+#' @param relax either a logical vector of length \code{levels} specifying whether model relaxation (e.g. the relaxed lasso) should be employed at each level, or a single TRUE or FALSE to enable or disable relaxing across all levels. Defaults to FALSE.
+#' @param adaptive either a logical vector of length \code{levels} specifying whether adaptive weights (e.g. the adaptive lasso) should be employed at each level, or a single TRUE or FALSE to enable or disable adaptive weights across all levels. Note that using adaptive weights is generally only sensible if alpha > 0. Defaults to FALSE.
 #' @param nnc a binary vector specifying whether to apply nonnegativity constraints or not (1/0) at each level.
+#' @param na.action character specifying what to do with missing values (NA). Options are "pass", "fail", "mean", "mice", and "missForest". Options "mice" and "missForest" requires the respective R package to be installed. Defaults to "fail".
+#' @param na.arguments (optional) a named list of arguments to pass to the imputation function (e.g. to \code{mice} or \code{missForest}).
 #' @param parallel whether to use foreach to fit the learners and obtain the cross-validated predictions at each level in parallel. Executes sequentially unless a parallel back-end is registered beforehand.
 #' @param seeds (optional) a vector specifying the seed to use at each level.
 #' @param progress whether to show a progress bar (only supported when parallel = FALSE).
@@ -36,21 +40,27 @@
 #' set.seed(012)
 #' n <- 1000
 #' X <- matrix(rnorm(8500), nrow=n, ncol=85)
-#' top_level <- c(rep(1,45), rep(2,20), rep(3,20))
-#' bottom_level <- c(rep(1:3, each=15), rep(4:5, each=10), rep(6:9, each=5))
-#' views <- cbind(bottom_level, top_level)
 #' beta <- c(rep(10, 55), rep(0, 30)) * ((rbinom(85, 1, 0.5)*2)-1)
 #' eta <- X %*% beta
 #' p <- 1 /(1 + exp(-eta))
 #' y <- rbinom(n, 1, p)
 #'
-#' fit <- MVS(x=X, y=y, views=views, type="StaPLR", levels=3, alphas=c(0,1,1), nnc=c(0,1,1))
+#' ## 2-level MVS
+#' views <- c(rep(1,45), rep(2,20), rep(3,20))
+#' fit <- MVS(x=X, y=y, views=views)
+#' 
+#' ## 3-level MVS
+#' bottom_level <- c(rep(1:3, each=15), rep(4:5, each=10), rep(6:9, each=5))
+#' top_level <- c(rep(1,45), rep(2,20), rep(3,20))
+#' views <- cbind(bottom_level, top_level)
+#' fit <- MVS(x=X, y=y, views=views, levels=3, alphas=c(0,1,1), nnc=c(0,1,1))
 #' coefficients <- coef(fit)
 #'
 #' new_X <- matrix(rnorm(2*85), nrow=2)
 #' predict(fit, new_X)}
 
-MVS <- function(x, y, views, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1), parallel=FALSE, seeds=NULL, progress=TRUE, ...){
+MVS <- function(x, y, views, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1), parallel=FALSE, 
+                seeds=NULL, progress=TRUE, relax = FALSE, adaptive = FALSE, na.action = "fail", na.arguments = NULL, ...){
   
   staplr.args <- names(list(...))
   
@@ -58,6 +68,16 @@ MVS <- function(x, y, views, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1),
     if(any(c("correct.for", "skip.meta", "skip.cv") %in% staplr.args)){
       stop("StaPLR arguments 'correct.for', 'skip.meta' and 'skip.cv' are not supported for use with MVS().")
     }
+  }
+  
+  if (levels == 2L) if (!is.matrix(views)) views <- matrix(views, ncol = 1L)
+  
+  if(length(relax)==1){
+    relax <- rep(relax, levels)
+  }
+  
+  if(length(adaptive)==1){
+    adaptive <- rep(adaptive, levels)
   }
 
   pred_functions <- vector("list", length=ncol(views)+1)
@@ -67,9 +87,13 @@ MVS <- function(x, y, views, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1),
     message("Level 1 \n")
   }
 
+  ## Fit lowest-level baselearners
   pred_functions[[1]] <- learn(X=x, y=y, views=views[,1], type=type, alpha1 = alphas[1], ll1=ll[1],
-                               seed=seeds[1], progress=progress, parallel=parallel, ...)
+                               seed=seeds[1], progress=progress, parallel=parallel, 
+                               relax.base = relax[1L], penalty.weights.base = translate_adaptive_argument(adaptive[1L]), 
+                               na.action=na.action, na.arguments=na.arguments, ...)
 
+  ## Fit intermediate-level learners
   if(levels > 2){
     for(i in 2:ncol(views)){
       if(progress){
@@ -78,7 +102,9 @@ MVS <- function(x, y, views, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1),
       pred_functions[[i]] <- learn(pred_functions[[i-1]]$CVs, y,
                                    views=condense(views, level=i), type=type,
                                    alpha1 = alphas[i], ll1=ll[i], seed=seeds[i],
-                                   progress=progress, parallel=parallel, ...)
+                                   progress=progress, parallel=parallel, relax.base = relax[i],
+                                   penalty.weights.base = translate_adaptive_argument(adaptive[i]),
+                                   na.action=na.action, na.arguments=na.arguments,...)
     }
   }
 
@@ -86,11 +112,15 @@ MVS <- function(x, y, views, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1),
     message(paste("Level", ncol(views)+1, "\n"))
   }
 
-  pred_functions[[ncol(views)+1]] <- learn(pred_functions[[ncol(views)]]$CVs, y,
+  ## Fit meta learner
+  pred_functions[[ncol(views)+1]] <- learn(pred_functions[[ncol(views)]]$CVs, y=y,
                                            views=rep(1,ncol(pred_functions[[ncol(views)]]$CVs)),
-                                           type=type, alpha1 = alphas[ncol(views)+1], ll1=ll[ncol(views)+1],
+                                           type=type, alpha1=alphas[ncol(views)+1], ll1=ll[ncol(views)+1],
                                            generate.CVs=FALSE, seed=seeds[ncol(views)+1],
-                                           progress=progress, parallel=parallel, ...)
+                                           progress=progress, parallel=parallel, 
+                                           relax.base = relax[ncol(views)+1],
+                                           penalty.weights.base = translate_adaptive_argument(adaptive[ncol(views)+1]),
+                                           na.action=na.action, na.arguments=na.arguments,...)
 
   for(i in 1:length(pred_functions)){
     pred_functions[[i]]$meta <- NULL

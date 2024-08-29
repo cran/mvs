@@ -19,3 +19,14 @@ bibentry(bibtype = "Article",
   doi            = "10.3389/fnins.2022.830630",
   header         = "To cite hierarchical mvs/staplr in publications also use:"
 )
+
+bibentry(bibtype = "Article",
+  title          = "Imputation of missing values in multi-view data",
+  author         = c(as.person("Wouter van Loon"), as.person("Marjolein Fokkema"), as.person ("Frank de Vos"), as.person("Marisa Koini"), as.person("Reinhold Schmidt"), as.person("Mark de Rooij")),
+  journal        = "Information Fusion",
+  year           = "2024",
+  volume         = "111",
+  pages          = "102524",
+  doi            = "10.1016/j.inffus.2024.102524",
+  header         = "For meta-level missing value imputation please cite:"
+)

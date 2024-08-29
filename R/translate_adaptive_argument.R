@@ -12,14 +12,15 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#' @importFrom stats xtabs
-condense <- function(views, level){
 
-  tab <- xtabs(~views[, level - 1] + views[, level])
-  condensed_views <- rep(NA, length(unique(views[, level])))
-  for(i in 1:nrow(tab)){
-    condensed_views [i] <- which(tab[i,] != 0)
+# This is a simple function that translates the MVS adaptive argument to the appropriate STaPLR argument.
+translate_adaptive_argument <- function(x){
+  if(x==TRUE){
+    return("adaptive")
+  }else if(x==FALSE){
+    return(NULL)
   }
-
-  return(condensed_views)
+  else{
+    stop("Adaptive argument must be of class logical.")
+  }
 }

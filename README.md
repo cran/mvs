@@ -152,6 +152,71 @@ parameters which minimize the cross-validation error (lambda.min).
     or more hierarchical levels is implemented in function `MVS` (alias
     `mvs`).
 
+-   Model relaxation (as used in, e.g., the relaxed lasso) can be
+    applied using argument `relax`, which can be either either a logical
+    vector of length `levels` specifying whether model relaxation should
+    be employed at each level, or a single `TRUE` or `FALSE` to enable
+    or disable relaxing across all levels.
+
+-   Adaptive weights (as used in, e.g., the adaptive lasso) can be
+    applied using argument `adaptive`, which is either a logical vector
+    of length `levels` specifying whether adaptive weights should be
+    employed at each level, or a single TRUE or FALSE to enable or
+    disable adaptive weights across all levels. Note that using adaptive
+    weights is generally only sensible if alpha \> 0 (i.e., if there is
+    at least some amount of *L*<sub>1</sub> regularization). Adaptive
+    weights are initialized using ridge regression as described in Van
+    Loon, Fokkema, Szabo, & De Rooij (2024).
+
+## Calculating view importance
+
+In a two-level StaPLR model, the meta-level regression coefficient of
+each view can be used as a measure of that view’s importance. Since, by
+default, the view specific predictions are all between 0 and 1, these
+regression coefficients are effectively on the same scale. However, in
+hierarchical StaPLR/MVS models with more than two levels, it may be hard
+to deduce view importance based purely on regression coefficients since
+these coefficients may correspond to different sub-models at different
+levels of the hierarchy. For hierarchical StaPLR/MVS models the
+*minority report measure* (MRM) (Van Loon et al. (2022)) can be
+calculated using `MRM()` (alias `mrm`). The MRM quantifies how much the
+prediction of the complete stacked model changes as the view-specific
+prediction of view *i* changes from *a* (default value 0) to *b*
+(default value 1), while the other predictions are kept constant (the
+recommended value for this constant being the mean of the outcome
+variable). For technical details see Van Loon et al. (2022).
+
+## Handling missing data
+
+In practice, it is likely that not all views were measured for all
+observations. Broadly, there are three ways for dealing with this
+situation:
+
+1.  Remove any observations with missing data.
+2.  Impute missing values at the base (feature) level.
+3.  Impute missing values at the meta (cross-validated prediction)
+    level.
+
+The first approach is wasteful, and the second one may be very
+computationally intensive if there are many features. Assuming the
+missing views are missing completely at random, we recommend to impute
+missing values at the meta level (Van Loon, Fokkema, De Vos, et al.
+(2024)). This is implemented in `mvs` through the `na.action` argument.
+The following options are available:
+
+-   `fail` causes `mvs` to stop whenever it detects missing values (the
+    default).
+-   `pass` ‘propagates’ the missing values through to the prediction
+    level, but does not perform imputation.
+-   `mean` performs meta-level (unconditional) mean imputation.
+-   `mice` performs meta-level predictive mean matching. It requires the
+    R package `mice` to be installed.
+-   `missForest`performs meta-level missForest imputation. It requires
+    the R package `missForest` to be installed.
+
+For more information about meta-level imputation see Van Loon, Fokkema,
+De Vos, et al. (2024).
+
 ## References
 
 Van Loon, W., De Vos, F., Fokkema, M., Szabo, B., Koini, M., Schmidt,
@@ -160,7 +225,17 @@ with StaPLR: An application to Alzheimer’s disease classification.
 *Frontiers in Neuroscience*, *16*, 830630.
 <https://doi.org/10.3389/fnins.2022.830630>
 
+Van Loon, W., Fokkema, M., De Vos, F., Koini, M., Schmidt, R., & De
+Rooij, M. (2024). Imputation of missing values in multi-view data.
+*Information Fusion*, *111*, 102524.
+<https://doi.org/10.1016/j.inffus.2024.102524>
+
 Van Loon, W., Fokkema, M., Szabo, B., & De Rooij, M. (2020). Stacked
 penalized logistic regression for selecting views in multi-view
 learning. *Information Fusion*, *61*, 113–123.
 <https://doi.org/10.1016/j.inffus.2020.03.007>
+
+Van Loon, W., Fokkema, M., Szabo, B., & De Rooij, M. (2024). View
+selection in multi-view stacking: Choosing the meta-learner. *Advances
+in Data Analysis and Classification*.
+<https://doi.org/10.1007/s11634-024-00587-5>

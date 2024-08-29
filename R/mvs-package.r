@@ -4,6 +4,7 @@
 #'
 #' @author Wouter van Loon [cre, aut]  <\email{w.s.van.loon@fsw.leidenuniv.nl}>
 #' @author Marjolein Fokkema [ctb]
-#' @docType package
+#' @details Details
+"_PACKAGE"
 #' @name mvs-package
 NULL

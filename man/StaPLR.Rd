@@ -14,7 +14,10 @@ StaPLR(
   correct.for = NULL,
   alpha1 = 0,
   alpha2 = 1,
+  relax = FALSE,
   nfolds = 10,
+  na.action = "fail",
+  na.arguments = NULL,
   seed = NULL,
   std.base = FALSE,
   std.meta = FALSE,
@@ -28,12 +31,16 @@ StaPLR(
   cvparallel = FALSE,
   lambda.ratio = 1e-04,
   fdev = 0,
-  penalty.weights = NULL,
+  penalty.weights.meta = NULL,
+  penalty.weights.base = NULL,
+  gamma.seq = c(0.5, 1, 2),
   parallel = FALSE,
   skip.version = TRUE,
   skip.meta = FALSE,
   skip.cv = FALSE,
-  progress = TRUE
+  progress = TRUE,
+  relax.base = FALSE,
+  relax.meta = FALSE
 )
 
 staplr(
@@ -45,7 +52,10 @@ staplr(
   correct.for = NULL,
   alpha1 = 0,
   alpha2 = 1,
+  relax = FALSE,
   nfolds = 10,
+  na.action = "fail",
+  na.arguments = NULL,
   seed = NULL,
   std.base = FALSE,
   std.meta = FALSE,
@@ -59,12 +69,16 @@ staplr(
   cvparallel = FALSE,
   lambda.ratio = 1e-04,
   fdev = 0,
-  penalty.weights = NULL,
+  penalty.weights.meta = NULL,
+  penalty.weights.base = NULL,
+  gamma.seq = c(0.5, 1, 2),
   parallel = FALSE,
   skip.version = TRUE,
   skip.meta = FALSE,
   skip.cv = FALSE,
-  progress = TRUE
+  progress = TRUE,
+  relax.base = FALSE,
+  relax.meta = FALSE
 )
 }
 \arguments{
@@ -80,13 +94,19 @@ staplr(
 For more information, see \code{family} argument's documentation in \code{\link[glmnet]{glmnet}}. Note
 that "multinomial", "mgaussian", "cox", or 2-column responses with "binomial" family are not yet supported.}
 
-\item{correct.for}{(optional) a matrix with nrow = nobs, where each column is a feature which should be included directly into the meta.learner. By default these features are not penalized (see penalty.weights) and appear at the top of the coefficient list.}
+\item{correct.for}{(optional) a matrix with nrow = nobs, where each column is a feature which should be included directly into the meta.learner. By default these features are not penalized (see penalty.weights.meta) and appear at the top of the coefficient list.}
 
 \item{alpha1}{(base) alpha parameter for glmnet: lasso(1) / ridge(0)}
 
 \item{alpha2}{(meta) alpha parameter for glmnet: lasso(1) / ridge(0)}
 
+\item{relax}{logical, whether relaxed lasso should be used at base and meta level.}
+
 \item{nfolds}{number of folds to use for all cross-validation.}
+
+\item{na.action}{character specifying what to do with missing values (NA). Options are "pass", "fail", "mean", "mice", and "missForest". Options "mice" and "missForest" requires the respective R package to be installed. Defaults to "pass".}
+
+\item{na.arguments}{(optional) a named list of arguments to pass to the imputation function (e.g. to \code{mice} or \code{missForest}).}
 
 \item{seed}{(optional) numeric value specifying the seed. Setting the seed this way ensures the results are reproducible even when the computations are performed in parallel.}
 
@@ -114,7 +134,11 @@ that "multinomial", "mgaussian", "cox", or 2-column responses with "binomial" fa
 
 \item{fdev}{sets the minimum fractional change in deviance for stopping the path to the specified value, ignoring the value of fdev set through glmnet.control. Setting fdev=NULL will use the value set through glmnet.control instead. It is strongly recommended to use the default value of zero.}
 
-\item{penalty.weights}{(optional) a vector of length nviews, containing different penalty factors for the meta-learner. Defaults to rep(1,nviews). The penalty factor is set to 0 for correct.for features.}
+\item{penalty.weights.meta}{(optional) either a vector of length nviews containing different penalty factors for the meta-learner, or "adaptive" to calculate the weights from the data. The default value NULL implies an equal penalty for each view. The penalty factor is set to 0 for \code{correct.for} features.}
+
+\item{penalty.weights.base}{(optional) either a list of length nviews, where each entry is a vector containing different penalty factors for each feature in that view, or "adaptive" to calculate the weights from the data. The default value NULL implies an equal penalty for each view. Note that using adaptive weights at the base level is generally only sensible if \code{alpha1} > 0.}
+
+\item{gamma.seq}{a sequence of gamma values over which to optimize the adaptive weights. Only used when \code{penalty.weights.meta="adaptive"} or \code{penalty.weights.base="adaptive"}.}
 
 \item{parallel}{whether to use foreach to fit the base-learners and obtain the cross-validated predictions in parallel. Executes sequentially unless a parallel backend is registered beforehand.}
 
@@ -125,6 +149,10 @@ that "multinomial", "mgaussian", "cox", or 2-column responses with "binomial" fa
 \item{skip.cv}{whether to skip generating the cross-validated predictions.}
 
 \item{progress}{whether to show a progress bar (only supported when parallel = FALSE).}
+
+\item{relax.base}{logical indicating whether relaxed lasso should be employed for fitting the base learners. If \code{TRUE}, then CV is done with respect to the mixing parameter gamma as well as lambda.}
+
+\item{relax.meta}{logical indicating whether relaxed lasso should be employed for fitting the meta learner. If \code{TRUE}, then CV is done with respect to the mixing parameter gamma as well as lambda.}
 }
 \value{
 An object with S3 class "StaPLR".

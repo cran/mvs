@@ -1,3 +1,12 @@
+August 20, 2024 - 'mvs' - version 2.0.0
+- New feature: support for model relaxation (i.e. the relaxed lasso and variants).
+- New feature: support for adaptive weights (i.e. the adaptive lasso and variants).
+- New feature: minority report measure (MRM). This measure allows the user to calculate view importance at any level of a multi-view stacking model.  
+- New feature: missing data handling. Missing values can now be "propagated" through the MVS model and/or imputed at the meta-level or intermediate levels. The following meta-level imputation methods are supported:
+	- mean imputation
+	- predictive mean matching (requires 'mice')
+	- missForest imputation (requires 'missForest') 
+
 August 14, 2023 - 'mvs' - version 1.0.2
 - Clarified StaPLR acronym in DESCRIPTION.
 - Added name and year to references in DESCRIPTION.

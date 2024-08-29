@@ -1,4 +1,4 @@
-test_that("StaPLR",{
+test_that("StaPLR_parallel",{
   set.seed(012)
   n <- 100
   cors <- seq(0.1,0.7,0.1)
@@ -15,15 +15,15 @@ test_that("StaPLR",{
   y <- rbinom(n, 1, p)
   view_index <- rep(1:(ncol(X)/2), each=2)
   
-  StaPLR_fit <- StaPLR(X, y, view_index) # regular StaPLR model
-  StaPLR_fit_adaptive <- StaPLR(X, y, view_index, penalty.weights.meta="adaptive") # adaptive StaPLR model
-  StaPLR_fit_bad_prior <- StaPLR(X, y, view_index, penalty.weights.meta=c(4:1)^10) # StaPLR model with a bad choice of weights
+  StaPLR_fit <- StaPLR(X, y, view_index, parallel = TRUE) # regular StaPLR model
+  StaPLR_fit_adaptive <- StaPLR(X, y, view_index, penalty.weights.meta="adaptive", parallel = TRUE) # adaptive StaPLR model
+  StaPLR_fit_bad_prior <- StaPLR(X, y, view_index, penalty.weights.meta=c(4:1)^10, parallel = TRUE) # StaPLR model with a bad choice of weights
   
   correction_X <- matrix(rnorm(2*n), nrow=n)
   
-  StaPLR_fit_correction <- StaPLR(X, y, view_index, correct.for=correction_X) # regular StaPLR model with correction features
-  StaPLR_fit_adaptive_correction <- StaPLR(X, y, view_index, penalty.weights.meta="adaptive", correct.for=correction_X) # adaptive StaPLR model with correction features
-  StaPLR_fit_bad_prior_correction <- StaPLR(X, y, view_index, penalty.weights.meta=c(4:1)^10, correct.for=correction_X) # StaPLR model with a bad choice of weights and correction features
+  StaPLR_fit_correction <- StaPLR(X, y, view_index, correct.for=correction_X, parallel = TRUE) # regular StaPLR model with correction features
+  StaPLR_fit_adaptive_correction <- StaPLR(X, y, view_index, penalty.weights.meta="adaptive", correct.for=correction_X, parallel = TRUE) # adaptive StaPLR model with correction features
+  StaPLR_fit_bad_prior_correction <- StaPLR(X, y, view_index, penalty.weights.meta=c(4:1)^10, correct.for=correction_X, parallel = TRUE) # StaPLR model with a bad choice of weights and correction features
   
   StaPLR_fit_base_adaptive <- StaPLR(X, y, view_index, penalty.weights.base = "adaptive", alpha1=1) # StaPLR with adaptive weights at the base level
   prior_weights <- list(c(1, 1e4), c(1, 1e12), c(1, 1e12), c(1e12, 1))
@@ -40,4 +40,4 @@ test_that("StaPLR",{
   
   expect_error(StaPLR(X, y, view_index, penalty.weights.base = "test", alpha1=1)) # not a valid option
   expect_error(StaPLR(X, y, view_index, penalty.weights.base = as.list(1:4), alpha1=1)) # wrong list dimensions
-  })
+})

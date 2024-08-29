@@ -16,6 +16,10 @@ MVS(
   parallel = FALSE,
   seeds = NULL,
   progress = TRUE,
+  relax = FALSE,
+  adaptive = FALSE,
+  na.action = "fail",
+  na.arguments = NULL,
   ...
 )
 
@@ -30,6 +34,10 @@ mvs(
   parallel = FALSE,
   seeds = NULL,
   progress = TRUE,
+  relax = FALSE,
+  adaptive = FALSE,
+  na.action = "fail",
+  na.arguments = NULL,
   ...
 )
 }
@@ -44,7 +52,7 @@ mvs(
 
 \item{levels}{an integer >= 2, specifying the number of levels in the MVS procedure.}
 
-\item{alphas}{a vector specifying the value of the alpha parameter to use at each level.}
+\item{alphas}{a numeric vector of length \code{levels} specifying the value of the alpha parameter to use at each level.}
 
 \item{nnc}{a binary vector specifying whether to apply nonnegativity constraints or not (1/0) at each level.}
 
@@ -53,6 +61,14 @@ mvs(
 \item{seeds}{(optional) a vector specifying the seed to use at each level.}
 
 \item{progress}{whether to show a progress bar (only supported when parallel = FALSE).}
+
+\item{relax}{either a logical vector of length \code{levels} specifying whether model relaxation (e.g. the relaxed lasso) should be employed at each level, or a single TRUE or FALSE to enable or disable relaxing across all levels. Defaults to FALSE.}
+
+\item{adaptive}{either a logical vector of length \code{levels} specifying whether adaptive weights (e.g. the adaptive lasso) should be employed at each level, or a single TRUE or FALSE to enable or disable adaptive weights across all levels. Note that using adaptive weights is generally only sensible if alpha > 0. Defaults to FALSE.}
+
+\item{na.action}{character specifying what to do with missing values (NA). Options are "pass", "fail", "mean", "mice", and "missForest". Options "mice" and "missForest" requires the respective R package to be installed. Defaults to "fail".}
+
+\item{na.arguments}{(optional) a named list of arguments to pass to the imputation function (e.g. to \code{mice} or \code{missForest}).}
 
 \item{...}{additional arguments to pass to the learning algorithm. See e.g. ?StaPLR. Note that these arguments are passed to the the learner at every level of the MVS procedure.}
 }
@@ -67,15 +83,20 @@ Fit a multi-view stacking model with two or more levels.
 set.seed(012)
 n <- 1000
 X <- matrix(rnorm(8500), nrow=n, ncol=85)
-top_level <- c(rep(1,45), rep(2,20), rep(3,20))
-bottom_level <- c(rep(1:3, each=15), rep(4:5, each=10), rep(6:9, each=5))
-views <- cbind(bottom_level, top_level)
 beta <- c(rep(10, 55), rep(0, 30)) * ((rbinom(85, 1, 0.5)*2)-1)
 eta <- X \%*\% beta
 p <- 1 /(1 + exp(-eta))
 y <- rbinom(n, 1, p)
 
-fit <- MVS(x=X, y=y, views=views, type="StaPLR", levels=3, alphas=c(0,1,1), nnc=c(0,1,1))
+## 2-level MVS
+views <- c(rep(1,45), rep(2,20), rep(3,20))
+fit <- MVS(x=X, y=y, views=views)
+
+## 3-level MVS
+bottom_level <- c(rep(1:3, each=15), rep(4:5, each=10), rep(6:9, each=5))
+top_level <- c(rep(1,45), rep(2,20), rep(3,20))
+views <- cbind(bottom_level, top_level)
+fit <- MVS(x=X, y=y, views=views, levels=3, alphas=c(0,1,1), nnc=c(0,1,1))
 coefficients <- coef(fit)
 
 new_X <- matrix(rnorm(2*85), nrow=2)

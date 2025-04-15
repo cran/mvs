@@ -10,7 +10,7 @@ MVS(
   y,
   views,
   type = "StaPLR",
-  levels = 2,
+  levels = NULL,
   alphas = c(0, 1),
   nnc = c(0, 1),
   parallel = FALSE,
@@ -28,7 +28,7 @@ mvs(
   y,
   views,
   type = "StaPLR",
-  levels = 2,
+  levels = NULL,
   alphas = c(0, 1),
   nnc = c(0, 1),
   parallel = FALSE,
@@ -48,9 +48,9 @@ mvs(
 
 \item{views}{a matrix of dimension nvars x (levels - 1), where each entry is an integer describing to which view each feature corresponds.}
 
-\item{type}{the type of MVS model to be fitted. Currently only type "StaPLR" is supported.}
+\item{type}{a character vector of length 1 or length \code{levels}, specifying the type(s) of learner to be used at each level of MVS. Use type "StaPLR" when the desired learner(s) is/are penalized GLM(s); see \code{\link[mvs]{StaPLR}} for supported families. Use type "RF" for random forests.}
 
-\item{levels}{an integer >= 2, specifying the number of levels in the MVS procedure.}
+\item{levels}{(optional) an integer >= 2, specifying the number of levels in the MVS procedure. The default is to infer the number of levels from the supplied \code{views} argument.}
 
 \item{alphas}{a numeric vector of length \code{levels} specifying the value of the alpha parameter to use at each level.}
 
@@ -70,7 +70,7 @@ mvs(
 
 \item{na.arguments}{(optional) a named list of arguments to pass to the imputation function (e.g. to \code{mice} or \code{missForest}).}
 
-\item{...}{additional arguments to pass to the learning algorithm. See e.g. ?StaPLR. Note that these arguments are passed to the the learner at every level of the MVS procedure.}
+\item{...}{additional arguments to pass to the learning algorithm. See e.g. \code{\link[mvs]{StaPLR}}. Note that these arguments are passed to the the learner at every level of the MVS procedure.}
 }
 \value{
 An object of S3 class "MVS".
@@ -88,9 +88,14 @@ eta <- X \%*\% beta
 p <- 1 /(1 + exp(-eta))
 y <- rbinom(n, 1, p)
 
-## 2-level MVS
+## 2-level MVS with ridge for baselearners and lasso for meta learner
 views <- c(rep(1,45), rep(2,20), rep(3,20))
 fit <- MVS(x=X, y=y, views=views)
+
+## 2-level MVS with random forest for base learners and lasso for meta learner
+fit <- MVS(x=X, y=y, views=views, type = c("RF", "StaPLR"))
+new_X <- matrix(rnorm(2*85), nrow=2)
+predict(fit, new_X)
 
 ## 3-level MVS
 bottom_level <- c(rep(1:3, each=15), rep(4:5, each=10), rep(6:9, each=5))
@@ -98,9 +103,8 @@ top_level <- c(rep(1,45), rep(2,20), rep(3,20))
 views <- cbind(bottom_level, top_level)
 fit <- MVS(x=X, y=y, views=views, levels=3, alphas=c(0,1,1), nnc=c(0,1,1))
 coefficients <- coef(fit)
-
-new_X <- matrix(rnorm(2*85), nrow=2)
-predict(fit, new_X)}
+predict(fit, new_X)
+}
 }
 \author{
 Wouter van Loon <w.s.van.loon@fsw.leidenuniv.nl>

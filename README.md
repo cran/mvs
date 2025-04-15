@@ -4,13 +4,17 @@ Methods for high-dimensional multi-view learning based on the multi-view
 stacking (MVS) framework. Data have a multi-view structure when features
 comprise different ‘views’ of the same observations. For example, the
 different views may comprise omics, imaging or electronic health
-records. Package `mvs` provides functions to fit stacked penalized
-logistic regression (StaPLR) models, which are a special case of
-multi-view stacking (MVS). Additionally, `mvs` generalizes the StaPLR
-model to settings with a Gaussian or Poisson outcome distribution, and
-to hierarchical multi-view structures with more than two levels. For
-more information about the StaPLR and MVS methods, see Van Loon,
-Fokkema, Szabo, & De Rooij (2020) and Van Loon et al. (2022).
+records. Package `mvs` provides functions to fit multi-view stacking
+(MVS) models. This includes settings with a Binomial, Gaussian or
+Poisson outcome distribution, and hierarchical multi-view structures
+with more than two levels. For more information about the StaPLR and MVS
+methods, see Van Loon, Fokkema, Szabo, & De Rooij (2020) and Van Loon et
+al. (2022), or see the package vignette.
+
+## Package vignette
+
+`mvs` now has a more detailed package vignette. You can find it at
+<https://CRAN.R-project.org/package=mvs>.
 
 ## Installation
 
@@ -148,9 +152,11 @@ parameters which minimize the cross-validation error (lambda.min).
     Other outcome distributions (e.g., Gaussian, Poisson) can be modeled
     by specifying, e.g., `family = "gaussian"` or `family = "poisson"`.
 
--   A generalization of stacked penalized (logistic) regression to three
-    or more hierarchical levels is implemented in function `MVS` (alias
-    `mvs`).
+-   A generalization of multi-view stacking to three or more
+    hierarchical levels is implemented in function `MVS` (alias `mvs`).
+
+-   Instead of generalized linear models, random forests can be used as
+    the base or meta-learner by specifying `type = "RF"`.
 
 -   Model relaxation (as used in, e.g., the relaxed lasso) can be
     applied using argument `relax`, which can be either either a logical

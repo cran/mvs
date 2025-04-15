@@ -77,6 +77,10 @@ mrm <- MRM
 
 mrm_one <- function(fit, level=2, v, a, b, z, cvlambda="lambda.min"){
   
+  if(inherits(fit[[level]], "RF")){
+    stop("Calculation of the MRM is not (yet) supported for random forests.")
+  }
+  
   lvl_index <- fit[[level]]$view # view index at the desired level
   x0 <- rep(z, length(lvl_index)) # set all predictions to the value of z
   x1 <- x0 # idem

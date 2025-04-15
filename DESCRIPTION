@@ -1,7 +1,7 @@
 Package: mvs
 Type: Package
 Title: Methods for High-Dimensional Multi-View Learning
-Version: 2.0.0
+Version: 2.1.0
 Authors@R: c(person(given = "Wouter", family = "van Loon", role = c("aut", "cre"),
                       email = "w.s.van.loon@fsw.leidenuniv.nl"),
                       person(given = "Marjolein", family = "Fokkema", role = "ctb"))
@@ -10,14 +10,16 @@ Description: Methods for high-dimensional multi-view learning based on the multi
 License: GPL-2
 Encoding: UTF-8
 RoxygenNote: 7.3.2
-Depends: glmnet (>= 1.9-8)
+Depends: glmnet (>= 1.9-8), randomForest
 Imports: foreach (>= 1.4.4)
-Suggests: testthat (>= 3.0.0), mice (>= 3.16.0), missForest (>= 1.5)
+Suggests: testthat (>= 3.0.0), mice (>= 3.16.0), missForest (>= 1.5),
+        knitr, rmarkdown, bookdown
 Config/testthat/edition: 3
+VignetteBuilder: knitr
 NeedsCompilation: no
-Packaged: 2024-08-29 12:28:24 UTC; woute
+Packaged: 2025-04-15 14:18:45 UTC; woute
 Author: Wouter van Loon [aut, cre],
   Marjolein Fokkema [ctb]
 Maintainer: Wouter van Loon <w.s.van.loon@fsw.leidenuniv.nl>
 Repository: CRAN
-Date/Publication: 2024-08-29 13:00:02 UTC
+Date/Publication: 2025-04-15 15:00:02 UTC

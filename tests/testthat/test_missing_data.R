@@ -45,5 +45,7 @@ test_that("missing_data_MVS",{
   
   expect_error(MVS(x=X, y=y, views=views, type="StaPLR", levels=3, alphas=c(0,1,1), nnc=c(0,1,1)))
   MVS_fit <- MVS(x=X, y=y, views=views, type="StaPLR", levels=3, alphas=c(0,1,1), nnc=c(0,1,1), na.action="mean")
-  expect_equal(MVS_fit[[1]]$CVs[1,1:2], colMeans((MVS_fit[[1]]$CVs[51:100, 1:2])), tolerance = 1e-06)  
+  expect_equal(MVS_fit[[1]]$CVs[1,1:2], colMeans((MVS_fit[[1]]$CVs[51:100, 1:2])), tolerance = 1e-06)
+  MVS_fit_pass <- MVS(x=X, y=y, views=bottom_level, type="StaPLR", levels=2, alphas=c(0,1), nnc=c(0,1), na.action="pass")
+  expect_null(MVS_fit_pass$`Level 2`)
 })

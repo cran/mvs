@@ -1,3 +1,10 @@
+April 15, 2025 - 'mvs' - version 2.1.0
+- New feature: support for the use of random forests as base or meta learner.
+- Added package vignette.
+- Fixed a bug that caused MVS to train a meta-learner when na.action was set to pass. Note that this bug did not affect the rest of the results in any way.
+- MVS no longer requires an explicit number of levels; the number of levels can now be determined based on the views argument. 
+- Added a warning for alphas/nnc not being of equal length to the number of levels.
+
 August 20, 2024 - 'mvs' - version 2.0.0
 - New feature: support for model relaxation (i.e. the relaxed lasso and variants).
 - New feature: support for adaptive weights (i.e. the adaptive lasso and variants).
